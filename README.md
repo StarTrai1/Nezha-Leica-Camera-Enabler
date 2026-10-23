@@ -11,7 +11,7 @@ for the Xiaomi 17 Ultra (nezha).
 - Sets `camera.debug.safe.check.disable=true`
 
 **Bundled LSPOSED module** (`LeicaFramePatcher.apk`, installed automatically on flash — see [`lsposed-module/`](lsposed-module/)):
-- Removes the non-working Leica gallery frames from the picker (their working duplicates remain further down the list, so nothing is lost)
+- Keeps the original Leica gallery watermarks visible and allows six legacy Leica templates on Xiaomi 17 Ultra photos (HyperOS 4 editor 2.10.43.0.6; requires original EXIF for correct parameter text)
 - Hides the Leica camera-island "Camera ring" settings this variant has no hardware for — both in the camera and in system Settings (the Photography Kit "Camera Grip" is left working)
 - Renames the watermark device name to **"XIAOMI 17 Ultra by Leica"** in both the camera and the gallery editor
 

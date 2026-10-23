@@ -1,14 +1,12 @@
 package io.github.mexusbg.leicaframes;
 
+import android.os.Build;
 import android.util.Log;
 import android.util.SparseArray;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
 import org.luckypray.dexkit.DexKitBridge;
 import org.luckypray.dexkit.query.FindMethod;
@@ -26,8 +24,8 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
  * Modern (libxposed API 100+) Xposed module for the Xiaomi 17 Ultra (nezha) Leica tweaks.
  *
  * <ul>
- *   <li><b>Frames</b> — removes the Leica gallery frames that don't work on this device
- *       from the picker (their working duplicates remain later in the list).</li>
+ *   <li><b>Frames</b> — retains all Leica watermark picker entries and relaxes
+ *       eligibility of six legacy Leica templates on nezha images (HyperOS 4).</li>
  *   <li><b>Ring</b> — hides the Leica camera-island "Camera ring" settings (in the camera
  *       and in system Settings); the Photography-Kit "Camera Grip" is left working.</li>
  *   <li><b>Watermark</b> — renames the device name to "XIAOMI 17 Ultra by Leica" in the
@@ -78,7 +76,7 @@ public class HookEntry extends XposedModule {
         if (cl == null) return;
 
         if (PKG_MEDIAEDITOR.equals(pkg)) {
-            safe("frame-filter", () -> hookHideUnsupportedFrames(cl));
+            safe("legacy Leica eligibility", () -> hookAllowLegacyLeicaWatermarks(cl));
             safe("gallery watermark-name", () -> hookGalleryWatermarkName(cl));
         } else if (PKG_CAMERA.equals(pkg)) {
             safe("ring", () -> hookHideHandleRing(cl));
@@ -234,160 +232,103 @@ public class HookEntry extends XposedModule {
         }, "LeicaFP-DexKit").start();
     }
 
-    // ------------------------------------------------------------- frames (gallery) -----
-
+    // ----------------------------------------------------- legacy Leica (gallery) -----
     /**
-     * Remove the Leica frames that don't work on this device from the picker. The whole
-     * list flows from one map — {@code PhotoWatermarkViewModel}'s static
-     * {@code (PhotoWatermarkViewModel, Map)->void} processor — so we intercept it and drop,
-     * from each category, the items whose eligibility verdict {@code xi.y.a(template, tag, photo)}
-     * is UnSupport ({@code Di.a$b}). The stored map and the LiveData share the object, so the
-     * in-place edit hides the frames everywhere.
+     * Xiaomi Gallery Editor 2.10.43.0.6 (HyperOS 4):
+     *   w60.x0.a(i70.e, String, pc.b, o80.f) -> e70.a
+     *   e70.a$a.a = Support singleton, e70.a$b = UnSupport
+     *
+     * The obsolete hook filtered the picker Map in-place using old OS3 symbols
+     * (xi.y / Di.a). Do not filter or remove any watermark in the picker here.
+     * Instead, preserve the editor's normal check and override ONLY rejections
+     * for the six known legacy Leica templates on a Xiaomi 17 Ultra photo.
      */
-    private void hookHideUnsupportedFrames(final ClassLoader cl) {
-        Class<?> vmCls = findClass(CLS_WM_VIEWMODEL, cl);
-        Class<?> gate = findClass(CLS_GATE, cl);
-        Class<?> verdict = findClass(CLS_VERDICT, cl);
-        final Class<?> unsupport = findClass(CLS_UNSUPPORT, cl);
-        final Class<?> photoCls = findClass(CLS_PHOTO, cl);
-        if (vmCls == null || gate == null || verdict == null || unsupport == null) {
-            log(Log.WARN, TAG, "frame-filter name lookup failed (vm=" + vmCls + " gate=" + gate
-                    + " verdict=" + verdict + " unsupport=" + unsupport + ") — skipped.");
-            return;
-        }
-        final Method gateMethod = findGateMethod(gate, verdict);
-        if (gateMethod == null) {
-            log(Log.WARN, TAG, "eligibility method not found on " + CLS_GATE + " — filter skipped.");
-            return;
-        }
-        gateMethod.setAccessible(true);
+    private void hookAllowLegacyLeicaWatermarks(ClassLoader cl) throws ReflectiveOperationException {
+        Class<?> templateCls = Class.forName("i70.e", false, cl);
+        Class<?> exifCls = Class.forName("pc.b", false, cl);
+        Class<?> photoTypeCls = Class.forName("o80.f", false, cl);
+        Class<?> checkerCls = Class.forName("w60.x0", false, cl);
+        Class<?> rejectedCls = Class.forName("e70.a$b", false, cl);
+        Class<?> acceptedCls = Class.forName("e70.a$a", false, cl);
 
-        Method processor = null;
-        for (Method m : vmCls.getDeclaredMethods()) {
-            if (!Modifier.isStatic(m.getModifiers())) continue;
-            if (m.getReturnType() != void.class) continue;
-            Class<?>[] p = m.getParameterTypes();
-            if (p.length == 2 && p[0] == vmCls && Map.class.isAssignableFrom(p[1])) {
-                processor = m;
-                break;
-            }
-        }
-        if (processor == null) {
-            log(Log.WARN, TAG, "watermark map processor not found on " + CLS_WM_VIEWMODEL + " — filter skipped.");
-            return;
-        }
-        hook(processor).intercept(chain -> {
+        // IMPORTANT: i70.e.d is NOT the asset/template ID! The editor maps
+        // 'leica_2' to 37, 'leica_3' to 38, 'leica_4' to -1, etc.
+        // i70.e.a is the actual 'leica_1' / ... / 'leica_104' template name.
+        Field templateNameField = templateCls.getDeclaredField("a");
+        templateNameField.setAccessible(true);
+        Field successField = acceptedCls.getDeclaredField("a");
+        successField.setAccessible(true);
+        final Object accepted = successField.get(null);
+        Method exifRead = exifCls.getDeclaredMethod("f", String.class);
+        exifRead.setAccessible(true);
+        Method check = checkerCls.getDeclaredMethod(
+                "a", templateCls, String.class, exifCls, photoTypeCls);
+        check.setAccessible(true);
+
+        hook(check).intercept(chain -> {
+            Object result = chain.proceed(); // other templates use the original rules
+            if (!rejectedCls.isInstance(result)) return result;
+            if (!"leica".equals(chain.getArg(1))) return result;
+            if (!"nezha".equalsIgnoreCase(Build.DEVICE)) return result;
+
+            final Object template = chain.getArg(0);
+            final Object exif = chain.getArg(2);
+            if (template == null || exif == null) return result;
+            final String name;
             try {
-                filterFrameMap(chain.getArg(0), chain.getArg(1), gateMethod, unsupport, photoCls, cl);
+                name = (String) templateNameField.get(template);
             } catch (Throwable t) {
-                log(Log.ERROR, TAG, "frame filter error: " + t);
+                log(Log.WARN, TAG, "Cannot read Leica template name: " + t);
+                return result;
             }
-            return chain.proceed();
+            if (!isLegacyLeicaTemplate(name)) return result;
+
+            // Avoid unlocking unrelated pictures simply because they are being
+            // edited on a nezha device. These tags are read from PHOTO EXIF.
+            final String model = readExif(exifRead, exif, "Model");
+            final String product = readExif(exifRead, exif, "XiaomiProduct");
+            final String make = readExif(exifRead, exif, "Make");
+            final String m = model.toLowerCase(java.util.Locale.ROOT);
+            final String p = product.toLowerCase(java.util.Locale.ROOT);
+            final String manufacturer = make.toLowerCase(java.util.Locale.ROOT);
+            final boolean isXiaomiPhoto = m.contains("xiaomi") || m.contains("17 ultra")
+                    || m.contains("leitzphone") || p.contains("nezha")
+                    || p.contains("17 ultra") || manufacturer.contains("xiaomi");
+            if (!isXiaomiPhoto) {
+                log(Log.INFO, TAG, "Keeping original failure for " + name
+                        + ": photo is not Xiaomi/Leica (model=" + model + ")");
+                return result;
+            }
+
+            // Log genuine metadata gaps; passing eligibility cannot manufacture
+            // lost ISO/exposure/focal length values in the rendered watermark.
+            for (String key : new String[] {"PhotographicSensitivity",
+                    "FocalLengthIn35mmFilm", "FNumber", "ExposureTime",
+                    "ExposureBiasValue"}) {
+                String v = readExif(exifRead, exif, key);
+                if (v.isEmpty()) {
+                    log(Log.WARN, TAG, name + " missing EXIF " + key);
+                }
+            }
+            log(Log.INFO, TAG, "Allow legacy Leica watermark " + name
+                    + " on nezha (original verdict=" + result + ")");
+            return accepted;
         });
-        log(Log.INFO, TAG, "unsupported-frame filter active on " + processor);
+        log(Log.INFO, TAG, "HyperOS 4 legacy Leica eligibility hook installed: " + check);
     }
 
-    /** xi.y.a(Hi.a, String, D5.b) -> Di.a, matched by shape (static, 3 args, 2nd String). */
-    private Method findGateMethod(Class<?> gate, Class<?> verdict) {
-        for (Method m : gate.getDeclaredMethods()) {
-            if (!Modifier.isStatic(m.getModifiers())) continue;
-            if (m.getReturnType() != verdict) continue;
-            Class<?>[] p = m.getParameterTypes();
-            if (p.length == 3 && p[1] == String.class) return m;
-        }
-        return null;
+    private static boolean isLegacyLeicaTemplate(String name) {
+        return "leica_1".equals(name) || "leica_2".equals(name)
+                || "leica_3".equals(name) || "leica_4".equals(name)
+                || "leica_5".equals(name) || "leica_104".equals(name);
     }
 
-    @SuppressWarnings("unchecked")
-    private void filterFrameMap(Object viewModel, Object mapObj, Method gateMethod,
-                                Class<?> unsupport, Class<?> photoCls, ClassLoader cl) {
-        if (!(mapObj instanceof Map)) return;
-        Map<Object, Object> map = (Map<Object, Object>) mapObj;
-        Object photo = findPhoto(viewModel, photoCls, cl);
-        if (photo == null) {
-            log(Log.WARN, TAG, "frame filter — photo not found, leaving list unchanged.");
-            return;
-        }
-        int removed = 0, kept = 0;
-        for (Object category : new ArrayList<>(map.keySet())) {
-            String tag = getStringField(category, "f34714c");
-            if (tag == null) tag = firstStringField(category);
-            Object listObj = map.get(category);
-            if (!(listObj instanceof List)) continue;
-            List<Object> items = (List<Object>) listObj;
-            List<Object> keptItems = new ArrayList<>(items.size());
-            for (Object item : items) {
-                boolean drop = false;
-                try {
-                    Object template = getField(item, "f34715c");
-                    if (template == null) template = fieldByType(item, gateMethod.getParameterTypes()[0]);
-                    Object v = gateMethod.invoke(null, template, tag, photo);
-                    drop = unsupport.isInstance(v);
-                } catch (Throwable ignored) {
-                }
-                if (drop) removed++;
-                else {
-                    keptItems.add(item);
-                    kept++;
-                }
-            }
-            if (keptItems.size() != items.size()) {
-                try {
-                    items.clear();
-                    items.addAll(keptItems);
-                } catch (Throwable t1) {
-                    try {
-                        map.put(category, keptItems);
-                    } catch (Throwable t2) {
-                        log(Log.ERROR, TAG, "couldn't apply filter to a category: " + t2);
-                    }
-                }
-            }
-        }
-        log(Log.INFO, TAG, "frame filter — removed " + removed + ", kept " + kept + ".");
-    }
-
-    /** Edited photo (C0813b) from the shared photo-info service — same object the app uses. */
-    private Object findPhoto(Object viewModel, Class<?> photoCls, ClassLoader cl) {
-        if (photoCls == null) return null;
-        Object p = photoFromService(cl, photoCls);
-        if (p != null) return p;
+    private static String readExif(Method getter, Object exif, String name) {
         try {
-            Object rd = getField(viewModel, "f34509s");
-            p = fieldByType(rd, photoCls);
-            if (p != null) return p;
-        } catch (Throwable ignored) {
-        }
-        p = fieldByType(viewModel, photoCls);
-        if (p != null) return p;
-        for (Field f : viewModel.getClass().getDeclaredFields()) {
-            try {
-                f.setAccessible(true);
-                Object nested = f.get(viewModel);
-                if (nested != null && !(nested instanceof String)) {
-                    Object pp = fieldByType(nested, photoCls);
-                    if (pp != null) return pp;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        return null;
-    }
-
-    /** Photo from the watermark photo-info service locator (xj.e$a.c(Th.f).obtainPhotoInfo()). */
-    private Object photoFromService(ClassLoader cl, Class<?> photoCls) {
-        try {
-            Class<?> registry = findClass("xj.e$a", cl);
-            Class<?> iface = findClass("Th.f", cl);
-            if (registry == null || iface == null) return null;
-            Object service = callStatic(registry, "c", new Class<?>[]{Class.class}, iface);
-            if (service == null) return null;
-            Object photoInfo = callInstance(service, "obtainPhotoInfo");
-            if (photoInfo == null) return null;
-            return fieldByType(photoInfo, photoCls);
+            Object value = getter.invoke(exif, name);
+            return value == null ? "" : value.toString();
         } catch (Throwable t) {
-            log(Log.WARN, TAG, "photo service lookup failed: " + t);
-            return null;
+            return "";
         }
     }
 

@@ -6,14 +6,7 @@ that props alone cannot reach.
 
 ## What it fixes
 
-1. **6 Leica gallery frames rejected** — the HyperOS photo editor
-   (`com.miui.mediaeditor`) gates certain Leica frames behind a per-photo EXIF check
-   (`xi.y.a(Hi.a, String, D5.b)` → `Di.a`). Photos shot on nezha classify as
-   `xiaomi_series`, not Leica-cobrand, so those frames show
-   *"photo is not supported"*. The hook forces the gate to always return the
-   **Support** singleton (`Di.a$a.a`). The gate is a pure filter and feeds no render
-   data, so frames render correctly; absent EXIF text fields render blank (no crash).
-
+1. **Legacy Leica gallery watermarks** — never hide picker entries. On Xiaomi 17 Ultra (nezha), the HyperOS 4 editor 2.10.43.0.6 uses `w60.x0.a(i70.e, String, pc.b, o80.f)` to validate photo metadata. The hook keeps the editor normal checks for other watermarks but permits `leica_1` through `leica_5` and `leica_104` on Xiaomi/Leica photos. Genuine missing EXIF fields may still render blank; no EXIF values are fabricated.
 2. **Leica camera-island ring settings** — the Leica/Leitz variant has a control
    ring on the camera island; nezha does not, but the Leica props make its settings
    appear. Removed in two places (the Photography-Kit "Camera Grip" is a *separate*
@@ -79,7 +72,7 @@ watermark hook. libxposed provides no `XposedHelpers`, so reflection is done by 
    (`com.miui.mediaeditor`), **Camera** (`com.android.camera`), and **Settings**
    (`com.android.settings`). (Recommended scope is declared in `scope.list`.)
 3. **Force-stop** all three (or reboot) so the hooks load.
-4. Verify: the non-working Leica frames are gone from the gallery picker; the
+4. Verify: all six legacy Leica watermark frames remain in the gallery picker; the
    "Camera ring" entry is gone from both the camera settings and system Settings;
    and the watermark reads "XIAOMI 17 Ultra by Leica" (camera + gallery).
 
