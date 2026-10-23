@@ -17,7 +17,6 @@ import org.luckypray.dexkit.result.MethodData;
 import org.luckypray.dexkit.result.MethodDataList;
 
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
 /**
@@ -26,8 +25,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
  * <ul>
  *   <li><b>Frames</b> — retains all Leica watermark picker entries and relaxes
  *       eligibility of six legacy Leica templates on nezha images (HyperOS 4).</li>
- *   <li><b>Ring</b> — optionally hides the system Settings "Camera ring" entry;
- *       this requires manually adding Settings to the LSPosed scope.</li>
+ *   <li><b>Ring</b> — hides the unsupported Camera ring entry in system Settings.</li>
  *   <li><b>Watermark</b> — overrides the device name in the camera.</li>
  * </ul>
  *
@@ -37,7 +35,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
  */
 public class HookEntry extends XposedModule {
 
-    static final String TAG = "LeicaFramePatcher";
+    static final String TAG = "NezhaLeicaEnabler";
 
     private static final String PKG_MEDIAEDITOR = "com.miui.mediaeditor";
     private static final String PKG_CAMERA = "com.android.camera";
@@ -52,10 +50,6 @@ public class HookEntry extends XposedModule {
     private static final String WATERMARK_MFR = "";
     private static final String WATERMARK_DEV = "17 Ultra by Leica";
 
-    @Override
-    public void onModuleLoaded(ModuleLoadedParam param) {
-        log(Log.INFO, TAG, "loaded in " + param.getProcessName());
-    }
 
     @Override
     public void onPackageLoaded(PackageLoadedParam param) {
@@ -155,7 +149,7 @@ public class HookEntry extends XposedModule {
             } catch (Throwable t) {
                 log(Log.ERROR, TAG, "DexKit camera watermark search failed: " + t);
             }
-        }, "LeicaFP-DexKit").start();
+        }, "NezhaLeica-DexKit").start();
     }
 
     // ----------------------------------------------------- legacy Leica (gallery) -----

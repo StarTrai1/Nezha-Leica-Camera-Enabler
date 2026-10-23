@@ -31,9 +31,20 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      - name: Validate v1.3 metadata
+        run: |
+          set -eu
+          test "$(grep -c '^staticScope=true$' lsposed-module/app/src/main/resources/META-INF/xposed/module.prop)" = 1
+          ! grep -q 'com.hyper.gallery.plugin' lsposed-module/app/src/main/resources/META-INF/xposed/scope.list
+          grep -qx 'com.android.settings' lsposed-module/app/src/main/resources/META-INF/xposed/scope.list
+          unzip -p lsposed-module/app/build/outputs/apk/debug/app-debug.apk META-INF/xposed/module.prop | grep -qx 'staticScope=true'
+          unzip -p lsposed-module/app/build/outputs/apk/debug/app-debug.apk META-INF/xposed/scope.list | grep -qx 'com.android.settings'
+          for icon in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -s "lsposed-module/app/src/main/res/mipmap-${icon}/ic_launcher.png"
+          done
       - name: Bundle APK into module
         run: |
-          cp lsposed-module/app/build/outputs/apk/debug/app-debug.apk module/LeicaFramePatcher.apk
+          cp lsposed-module/app/build/outputs/apk/debug/app-debug.apk module/NezhaLeicaEnabler.apk
 
       - name: Create Zip
         run: |
@@ -41,18 +52,18 @@ jobs:
           # -X strips Info-ZIP extra fields (UT/ux); without it Magisk's installer
           # rejects the archive even though KernelSU accepts it.
           cd module
-          zip -X -r ../nezha_leica_camera_enabler_by_mexus.zip . -x '.*'
+          zip -X -r ../nezha_leica_enabler_v1.3_by_loong.zip . -x '.*'
 
       - name: Verify structure
         run: |
-          unzip -l nezha_leica_camera_enabler_by_mexus.zip
+          unzip -l nezha_leica_enabler_v1.3_by_loong.zip
           for f in \
             'META-INF/com/google/android/update-binary' \
             'customize.sh' \
-            'LeicaFramePatcher.apk' \
+            'NezhaLeicaEnabler.apk' \
             'module.prop' \
             'system.prop'; do
-            unzip -l nezha_leica_camera_enabler_by_mexus.zip | grep -q "$f" \
+            unzip -l nezha_leica_enabler_v1.3_by_loong.zip | grep -q "$f" \
               || { echo "MISSING: $f"; exit 1; }
           done
 
@@ -62,14 +73,14 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nezha_leica_camera_enabler
-          path: nezha_leica_camera_enabler_by_mexus.zip
+          name: nezha_leica_enabler_v1.3
+          path: nezha_leica_enabler_v1.3_by_loong.zip
 
       # Tagged builds only (v*): attach the raw, single flashable zip to the Release.
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: nezha_leica_camera_enabler_by_mexus.zip
+          files: nezha_leica_enabler_v1.3_by_loong.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

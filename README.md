@@ -1,50 +1,41 @@
-# Leica Camera Enabler (Safe)
+# Nezha Leica Enabler
 
-A Magisk/KernelSU module (+ bundled LSPOSED companion) that enables Leica features
-for the Xiaomi 17 Ultra (nezha).
+专为 Xiaomi 17 Ultra 打造的徕卡影像增强模块，完善相机与相册的徕卡水印、相框及拍摄信息展示体验。
 
-## Features
+适用：Xiaomi 17 Ultra（`nezha`）、HyperOS 4，需 Magisk/KernelSU 与支持 libxposed API 102 的 LSPosed。
 
-**Module (system props):**
-- Sets `ro.theme_customize=LCC`
-- Sets `ro.theme_leica=true`
-- Sets `camera.debug.safe.check.disable=true`
+## 功能
 
-**Bundled LSPOSED module** (`LeicaFramePatcher.apk`, installed automatically on flash — see [`lsposed-module/`](lsposed-module/)):
-- Keeps the original Leica gallery watermarks visible and allows six legacy Leica templates on Xiaomi 17 Ultra photos (HyperOS 4 editor 2.10.43.0.6; requires original EXIF for correct parameter text)
-- Optionally hides the "Camera ring" entry in system Settings (requires manually adding Settings to the LSPosed scope)
-- Renames the watermark device name to **"XIAOMI 17 Ultra by Leica"** in the camera
+- 使用系统属性启用徕卡主题/相机相关功能（`module/system.prop`）。
+- 优化相机徕卡水印的设备名称显示。
+- 保留相册水印列表；针对实机验证的六款徕卡模板（111、88、89、90、92、91）放宽特定照片的参数资格校验，不伪造 EXIF。
+- 在系统设置隐藏标准版没有的「大师变焦环 / Camera ring」设置入口，不影响摄影套装的相机手柄设置。
 
-> Default LSPosed scope: **Camera + Gallery editor**. Settings is optional (Camera ring entry).
+## LSPosed 固定作用域
 
-## Project structure
+`META-INF/xposed/module.prop` 使用 `staticScope=true`，只声明以下三个目标：
 
-- [`module/`](module/) — Magisk/KernelSU module payload (props, `customize.sh`, Magisk installer). The release zip is built from here.
-- [`lsposed-module/`](lsposed-module/) — the LSPOSED/Xposed companion (Gradle project). CI builds its APK and bundles it into the zip.
-- [`.github/workflows/release.yml`](.github/workflows/release.yml) — builds the APK, assembles and verifies the flashable zip, and attaches it to tagged releases.
+- `com.android.camera` — 相机水印
+- `com.miui.mediaeditor` — 相册徕卡水印资格校验
+- `com.android.settings` — 隐藏大师变焦环入口
 
-## Credits & Attribution
+不注入 `com.hyper.gallery.plugin`：当前模块没有针对该包的 Hook。
 
-- **Discovery:** Special thanks to **Max Weinbach** for discovering these flags. 
-  - [Original X Post by Max Weinbach](https://x.com/mweinbach/status/2038763588655993271)
-- **Author:** mexus
+## 安装
 
-## Requirements
+1. 由 GitHub Actions 构建的模块 ZIP 在 Magisk、KernelSU 或 KSU Next 中安装。
+2. 安装内置的 `NezhaLeicaEnabler.apk`（在 Android 环境刷入时会尝试自动安装），并在 LSPosed 启用 **Nezha Leica Enabler**。
+3. 重启手机，测试设置入口及相机、相册水印。固定作用域由 APK 声明，不需要添加其他应用。
 
-- Xiaomi 17 Ultra (nezha), rooted with Magisk or KernelSU / KSU-Next
-- A recent LSPOSED (Xposed **API 100+** — the companion is a modern libxposed module)
+> CI 每次生成的 Debug APK 可能使用不同证书。若自动升级提示签名冲突，先卸载旧的 LSPosed 同伴 APK，再安装新版，并重新启用模块。保留 Android 包名 `io.github.mexusbg.leicaframes`，避免不必要的包名迁移。
 
-## Installation
+## 构建
 
-1. Download the zip from the [Releases](https://github.com/mexusbg/Nezha-Leica-Camera-Enabler/releases) page
-   (use the **Release asset**, not the Actions "artifact" — that one is double-zipped by GitHub and won't flash).
-2. Flash it in the **Magisk app** or **KernelSU / KSU-Next** manager. This applies the props
-   and auto-installs the bundled LSPOSED APK (flashing runs inside Android, where `pm` is available).
-3. Open **LSPOSED** → enable **Leica Frame Patcher** → set its scope to **Camera** + **Gallery editor** (optional: **Settings** for hiding Camera ring).
-4. Reboot.
-5. Clear Camera app data.
+```sh
+cd lsposed-module
+./gradlew :app:assembleDebug
+```
 
-> The LSPOSED enable + scope step (3) is manual — LSPOSED has no supported way to auto-enable a module.
-> If auto-install didn't run (e.g. recovery flash), install `/data/adb/modules/leica_camera_enabler/LeicaFramePatcher.apk` manually.
+构建工作流位于 `.github/workflows/release.yml`。作者：**loong**，版本：**v1.3**。
 
-The LSPOSED module source and build details are in [`lsposed-module/`](lsposed-module/).
+感谢 Max Weinbach 对相关 Leica 属性的发现。项目与 Leica/Xiaomi 官方无隶属关系。

@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+>
 
     <!-- Modern Xposed module: config lives in META-INF/xposed/. The module name
          and description are taken from android:label / android:description. -->
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:description="@string/xposed_description"
-        tools:ignore="MissingApplicationIcon" />
+        android:description="@string/xposed_description">
+        <meta-data android:name="io.github.mexusbg.leicaframes.author" android:value="@string/module_author" />
+    </application>
 
 </manifest>

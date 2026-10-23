@@ -1,6 +1,6 @@
 id=leica_camera_enabler
-name=Leica Camera Enabler (Safe)
-version=v1.2
-versionCode=3
-author=mexus
-description=Enables Leica camera features on Xiaomi 17 Ultra (nezha). Sets the Leica props and installs an LSPOSED companion that removes the non-working gallery frames, hides the Leica camera-ring settings, and renames the watermark to "XIAOMI 17 Ultra by Leica". Does not spoof model or attestation flags.
+name=Nezha Leica Enabler
+version=v1.3
+versionCode=4
+author=loong
+description=专为 Xiaomi 17 Ultra 打造的徕卡影像增强模块，完善相机与相册的徕卡水印、相框及拍摄信息展示体验。
