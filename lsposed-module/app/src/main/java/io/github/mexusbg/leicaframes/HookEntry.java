@@ -241,7 +241,7 @@ public class HookEntry extends XposedModule {
      * The obsolete hook filtered the picker Map in-place using old OS3 symbols
      * (xi.y / Di.a). Do not filter or remove any watermark in the picker here.
      * Instead, preserve the editor's normal check and override ONLY rejections
-     * for the six known legacy Leica templates on a Xiaomi 17 Ultra photo.
+     * for the six rejected Leica templates (111/88/89/90/92/91) on a Xiaomi 17 Ultra photo.
      */
     private void hookAllowLegacyLeicaWatermarks(ClassLoader cl) throws ReflectiveOperationException {
         Class<?> templateCls = Class.forName("i70.e", false, cl);
@@ -252,8 +252,8 @@ public class HookEntry extends XposedModule {
         Class<?> acceptedCls = Class.forName("e70.a$a", false, cl);
 
         // IMPORTANT: i70.e.d is NOT the asset/template ID! The editor maps
-        // 'leica_2' to 37, 'leica_3' to 38, 'leica_4' to -1, etc.
-        // i70.e.a is the actual 'leica_1' / ... / 'leica_104' template name.
+        // asset IDs and internal names can differ; use the logged name field.
+        // i70.e.a contains names such as '徕卡_111', as confirmed by LEICA_DIAG.
         Field templateNameField = templateCls.getDeclaredField("a");
         templateNameField.setAccessible(true);
         Field successField = acceptedCls.getDeclaredField("a");
@@ -339,7 +339,7 @@ public class HookEntry extends XposedModule {
                     log(Log.WARN, TAG, name + " missing EXIF " + key);
                 }
             }
-            log(Log.INFO, TAG, "Allow legacy Leica watermark " + name
+            log(Log.INFO, TAG, "LEICA_FIX allow rejected Leica watermark " + name
                     + " on nezha (original verdict=" + result + ")");
             return accepted;
         });
@@ -347,9 +347,11 @@ public class HookEntry extends XposedModule {
     }
 
     private static boolean isLegacyLeicaTemplate(String name) {
-        return "leica_1".equals(name) || "leica_2".equals(name)
-                || "leica_3".equals(name) || "leica_4".equals(name)
-                || "leica_5".equals(name) || "leica_104".equals(name);
+        // Match only the six watermark names confirmed rejected by LEICA_DIAG.
+        // e70.a$b = rejected; e70.a$a = accepted.
+        return "徕卡_111".equals(name) || "徕卡_88".equals(name)
+                || "徕卡_89".equals(name) || "徕卡_90".equals(name)
+                || "徕卡_92".equals(name) || "徕卡_91".equals(name);
     }
 
     private static String readExif(Method getter, Object exif, String name) {
