@@ -12,10 +12,10 @@ for the Xiaomi 17 Ultra (nezha).
 
 **Bundled LSPOSED module** (`LeicaFramePatcher.apk`, installed automatically on flash — see [`lsposed-module/`](lsposed-module/)):
 - Keeps the original Leica gallery watermarks visible and allows six legacy Leica templates on Xiaomi 17 Ultra photos (HyperOS 4 editor 2.10.43.0.6; requires original EXIF for correct parameter text)
-- Hides the Leica camera-island "Camera ring" settings this variant has no hardware for — both in the camera and in system Settings (the Photography Kit "Camera Grip" is left working)
-- Renames the watermark device name to **"XIAOMI 17 Ultra by Leica"** in both the camera and the gallery editor
+- Optionally hides the "Camera ring" entry in system Settings (requires manually adding Settings to the LSPosed scope)
+- Renames the watermark device name to **"XIAOMI 17 Ultra by Leica"** in the camera
 
-> Requires ticking scope **Camera + Gallery editor + Settings** in the LSPOSED manager after install.
+> Default LSPosed scope: **Camera + Gallery editor**. Settings is optional (Camera ring entry).
 
 ## Project structure
 
@@ -40,7 +40,7 @@ for the Xiaomi 17 Ultra (nezha).
    (use the **Release asset**, not the Actions "artifact" — that one is double-zipped by GitHub and won't flash).
 2. Flash it in the **Magisk app** or **KernelSU / KSU-Next** manager. This applies the props
    and auto-installs the bundled LSPOSED APK (flashing runs inside Android, where `pm` is available).
-3. Open **LSPOSED** → enable **Leica Frame Patcher** → set its scope to **Camera** + **Gallery editor** + **Settings**.
+3. Open **LSPOSED** → enable **Leica Frame Patcher** → set its scope to **Camera** + **Gallery editor** (optional: **Settings** for hiding Camera ring).
 4. Reboot.
 5. Clear Camera app data.
 

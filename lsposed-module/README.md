@@ -4,44 +4,21 @@ Companion LSPOSED/Xposed module for the Nezha Leica Camera Enabler Magisk module
 The Magisk module sets the Leica system props; this module patches the app behaviour
 that props alone cannot reach.
 
-## What it fixes
+## Features
 
-1. **Legacy Leica gallery watermarks** — never hide picker entries. On Xiaomi 17 Ultra (nezha), the HyperOS 4 editor 2.10.43.0.6 uses `w60.x0.a(i70.e, String, pc.b, o80.f)` to validate photo metadata. The hook keeps the editor normal checks for other watermarks but permits `leica_1` through `leica_5` and `leica_104` on Xiaomi/Leica photos. Genuine missing EXIF fields may still render blank; no EXIF values are fabricated.
-2. **Leica camera-island ring settings** — the Leica/Leitz variant has a control
-   ring on the camera island; nezha does not, but the Leica props make its settings
-   appear. Removed in two places (the Photography-Kit "Camera Grip" is a *separate*
-   feature and is deliberately left working):
-   - *In-camera* (`com.android.camera`): under the Leica theme (LCC),
-     `MiThemeOperationCommonLC.supportHandleRing()` hard-returns `true`;
-     `CameraCommonPreferenceFragment.addCurrentPreferences` (~line 240) gates the
-     whole "Camera ring" block on it, as do the on-screen guide and gesture handler.
-     Forced to `false`. Real (non-obfuscated) MiuiCamera name — stable.
-   - *System Settings* (`com.android.settings`): a separate "Camera ring" header
-     (`R.id.camera_mr_settings`, launching
-     `com.miui.securitycore/…GestureShortcutCameraMrActivity`) is shown when
-     `SettingsFeatures.SUPPORT_CAMERA_MR_FUNCTION` is true, which is set once from
-     `miui.hardware.input.InputFeature.supportCameraMRFunction()`. The hook forces
-     that method to `false` in the Settings process (before `SettingsFeatures`'
-     static init runs), so `MiuiSettings` drops the header. Real framework name —
-     stable. Does **not** touch `com.android.settings.cameragrip` (the Photography Kit).
+1. **Six Leica watermarks** — keep all gallery entries and allow only
+   `徕卡_111`, `徕卡_88`, `徕卡_89`, `徕卡_90`, `徕卡_92`, `徕卡_91`
+   when the original eligibility check rejects a Xiaomi photo on `nezha`.
+   Other templates keep their original result. No EXIF data is fabricated.
+2. **Camera watermark device name** — use DexKit to locate camera watermark
+   provider methods and replace their manufacturer/model text. The set of
+   provider methods is unchanged from the previously working module.
+3. **Optional system Settings hook** — when `com.android.settings` is manually
+   included in LSPosed scope, hide the unsupported Camera ring settings entry
+   (`InputFeature.supportCameraMRFunction()`). The Photography Kit is unaffected.
 
-3. **Watermark device name** — shows **"XIAOMI 17 Ultra by Leica"** (brand "XIAOMI"
-   in the logo font, from the frame's own brand line) in both apps, replacing the
-   stock "Leitzphone Powered by Xiaomi":
-   - *Gallery* (`com.miui.mediaeditor`): the name comes from `mj.g.n()` (model line,
-     EXIF-`Model` → hashCode switch) which `mj.g.k()` combines. Both are forced to
-     `WATERMARK_NAME`. Obfuscated single-letter names — see the re-mapping note below.
-   - *Camera* (`com.android.camera`): the live-shot watermark text comes from a family
-     of provider classes (subclasses of `C15705`) whose `mo26211d()` returns a
-     `SparseArray<String[]>` = `[manufacturer, device]`. Both the class and method
-     names are **non-ASCII obfuscated and shift every build**, so they're located at
-     runtime with **DexKit** (shape: `SparseArray`-returning, zero-arg, with the
-     `SparseArray<String[]>` signature annotation) — exactly as HyperCeiler's
-     `camera/CustomWatermark` does. The device slot is set to `WATERMARK_DEV`
-     (`"17 Ultra by Leica"`); the frame prepends its own "XIAOMI" brand line.
-
-   To change the text, edit `WATERMARK_NAME` / `WATERMARK_DEV` in `HookEntry.java`
-   and rebuild.
+The unavailable in-camera ring hook and obsolete gallery device-name hook
+were removed. They were not working on the tested HyperOS 4 builds.
 
 ## Build
 
@@ -67,21 +44,22 @@ watermark hook. libxposed provides no `XposedHelpers`, so reflection is done by 
 
 ## Install
 
-1. Install the APK.
-2. In the LSPOSED manager: enable the module, tick scope **Gallery editor**
-   (`com.miui.mediaeditor`), **Camera** (`com.android.camera`), and **Settings**
-   (`com.android.settings`). (Recommended scope is declared in `scope.list`.)
-3. **Force-stop** all three (or reboot) so the hooks load.
-4. Verify: all six legacy Leica watermark frames remain in the gallery picker; the
-   "Camera ring" entry is gone from both the camera settings and system Settings;
-   and the watermark reads "XIAOMI 17 Ultra by Leica" (camera + gallery).
+1. Install the compiled LSPosed APK and enable the module.
+2. Recommended static scope: `com.android.camera` and `com.miui.mediaeditor`.
+   Do **not** select `com.hyper.gallery.plugin` (no Hook targets this package).
+3. Optional: manually enable `com.android.settings` only if you want to hide
+   the Camera ring entry in system Settings.
+4. Force-stop affected apps or reboot. Test all six watermark templates with
+   an original Xiaomi 17 Ultra photo.
+
+**Important:** `scope.list` gives defaults; changing it does not forcibly
+untick scopes already selected in LSPosed Manager. Remove unused selections
+manually after installing the updated APK.
 
 ## If a HyperOS update breaks it
 
-Hooks match by method *shape* where possible (e.g. the eligibility gate: static,
-3 params, 2nd is `String`, returns `Di.a`), so minor rebuilds usually survive.
-Logs go to the LSPOSED log — `adb logcat | grep LeicaFramePatcher` (tag
-`LSPosedFramework`) — and print class-lookup results and candidate methods when a
-name is gone. Re-map the `CLS_*` / obfuscated field-name constants in `HookEntry.java`.
-Markers to re-identify the gate class: family-tag literals `leica_series` /
-`xiaomi_series` / `lcc_series`, and EXIF keys `XiaomiProduct`, `themeCustomize`.
+The verified editor check for version 2.10.43.0.6 is
+`w60.x0.a(i70.e, String, pc.b, o80.f)`; verdicts are
+`e70.a$a` (accepted) and `e70.a$b` (rejected). If a future editor update
+changes this signature, the hook will fail to install and log the exception.
+Do not enable broad unconditional bypasses.
