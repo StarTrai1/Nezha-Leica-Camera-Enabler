@@ -267,6 +267,35 @@ public class HookEntry extends XposedModule {
 
         hook(check).intercept(chain -> {
             Object result = chain.proceed(); // other templates use the original rules
+            // Diagnostic-only: log which branch inputs the legacy Leica checks actually see.
+            // This deliberately does not change the verdict or the original return logic.
+            try {
+                Object debugTemplate = chain.getArg(0);
+                String debugName = "<null>";
+                if (debugTemplate != null) {
+                    Object debugValue = templateNameField.get(debugTemplate);
+                    debugName = String.valueOf(debugValue);
+                }
+                String debugCategory = String.valueOf(chain.getArg(1));
+                if (debugName.startsWith("leica_") || "leica".equalsIgnoreCase(debugCategory)) {
+                    Object debugExif = chain.getArg(2);
+                    String debugModel = debugExif == null ? "<null>"
+                            : readExif(exifRead, debugExif, "Model");
+                    String debugMake = debugExif == null ? "<null>"
+                            : readExif(exifRead, debugExif, "Make");
+                    String debugProduct = debugExif == null ? "<null>"
+                            : readExif(exifRead, debugExif, "XiaomiProduct");
+                    log(Log.INFO, TAG, "LEICA_DIAG: template=" + debugName
+                            + " category=" + debugCategory
+                            + " verdict=" + (result == null ? "<null>" : result.getClass().getName())
+                            + " device=" + Build.DEVICE
+                            + " exifModel=" + debugModel
+                            + " exifMake=" + debugMake
+                            + " exifXiaomiProduct=" + debugProduct);
+                }
+            } catch (Throwable debugFailure) {
+                log(Log.WARN, TAG, "LEICA_DIAG failed to inspect verdict: " + debugFailure);
+            }
             if (!rejectedCls.isInstance(result)) return result;
             if (!"leica".equals(chain.getArg(1))) return result;
             if (!"nezha".equalsIgnoreCase(Build.DEVICE)) return result;
