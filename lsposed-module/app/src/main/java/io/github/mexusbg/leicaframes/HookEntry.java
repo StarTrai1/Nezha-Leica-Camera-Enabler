@@ -58,7 +58,9 @@ public class HookEntry extends XposedModule {
         if (cl == null) return;
 
         if (PKG_MEDIAEDITOR.equals(pkg)) {
-            safe("legacy Leica eligibility", () -> hookAllowLegacyLeicaWatermarks(cl));
+            String editorApk = param.getApplicationInfo() != null
+                    ? param.getApplicationInfo().sourceDir : null;
+            safe("legacy Leica eligibility", () -> hookAllowLegacyLeicaWatermarks(cl, editorApk));
         } else if (PKG_CAMERA.equals(pkg)) {
             String apk = param.getApplicationInfo() != null ? param.getApplicationInfo().sourceDir : null;
             if (apk != null) {
@@ -152,39 +154,178 @@ public class HookEntry extends XposedModule {
         }, "NezhaLeica-DexKit").start();
     }
 
-    // ----------------------------------------------------- legacy Leica (gallery) -----
-    /**
-     * Xiaomi Gallery Editor 2.10.43.0.6 (HyperOS 4):
-     *   w60.x0.a(i70.e, String, pc.b, o80.f) -> e70.a
-     *   e70.a$a.a = Support singleton, e70.a$b = UnSupport
-     *
-     * The obsolete hook filtered the picker Map in-place using old OS3 symbols
-     * (xi.y / Di.a). Do not filter or remove any watermark in the picker here.
-     * Instead, preserve the editor's normal check and override ONLY rejections
-     * for the six verified templates (111/88/89/90/92/91) on a Xiaomi 17 Ultra photo.
-     */
-    private void hookAllowLegacyLeicaWatermarks(ClassLoader cl) throws ReflectiveOperationException {
-        Class<?> templateCls = Class.forName("i70.e", false, cl);
-        Class<?> exifCls = Class.forName("pc.b", false, cl);
-        Class<?> photoTypeCls = Class.forName("o80.f", false, cl);
-        Class<?> checkerCls = Class.forName("w60.x0", false, cl);
-        Class<?> rejectedCls = Class.forName("e70.a$b", false, cl);
-        Class<?> acceptedCls = Class.forName("e70.a$a", false, cl);
+    // ------------------------------------------------------ Leica watermark compatibility --
+    // Verified signatures: Gallery Editor 2.10.43.0.6 and 2.10.43.1.4.
+    private static final String[][] LEICA_GATE_SIGNATURES = {
+            {"x60.c1", "j70.d", "qc.b", "p80.g", "f70.a"}, // 2.10.43.1.4
+            {"w60.x0", "i70.e", "pc.b", "o80.f", "e70.a"}  // 2.10.43.0.6
+    };
+    private static final String LEICA_REJECTION_MARKER = "UnSupport(messageId=";
+    private static final String LEICA_WATERMARK_ITEM =
+            "com.miui.mediaeditor.photo.watermark.model.menu.WatermarkItem";
 
-        // IMPORTANT: i70.e.d is NOT the asset/template ID! The editor maps
-        // asset IDs and internal names can differ; use the logged name field.
-        // i70.e.a contains the tested template names (e.g. '徕卡_111').
-        Field templateNameField = templateCls.getDeclaredField("a");
-        templateNameField.setAccessible(true);
-        Field successField = acceptedCls.getDeclaredField("a");
-        successField.setAccessible(true);
-        final Object accepted = successField.get(null);
-        Method exifRead = exifCls.getDeclaredMethod("f", String.class);
-        exifRead.setAccessible(true);
-        Method check = checkerCls.getDeclaredMethod(
-                "a", templateCls, String.class, exifCls, photoTypeCls);
+    private static final class LeicaGate {
+        final Method check;
+        final Field templateName;
+        final Method exifRead;
+        final Class<?> rejected;
+        final Object accepted;
+
+        LeicaGate(Method check, Field templateName, Method exifRead,
+                  Class<?> rejected, Object accepted) {
+            this.check = check;
+            this.templateName = templateName;
+            this.exifRead = exifRead;
+            this.rejected = rejected;
+            this.accepted = accepted;
+        }
+    }
+
+    private static LeicaGate describeLeicaGate(Method check)
+            throws ReflectiveOperationException {
+        Class<?>[] args = check.getParameterTypes();
+        Class<?> verdict = check.getReturnType();
+        if (!java.lang.reflect.Modifier.isStatic(check.getModifiers())
+                || args.length != 4 || args[1] != String.class
+                || verdict.isPrimitive() || verdict.isArray()) {
+            throw new NoSuchMethodException("Unexpected watermark gate signature: " + check);
+        }
+
+        // Both inspected versions retain these members. Fail closed if they change.
+        Field templateName = args[0].getDeclaredField("a");
+        Method exifRead = args[2].getDeclaredMethod("f", String.class);
+        if (templateName.getType() != String.class
+                || java.lang.reflect.Modifier.isStatic(templateName.getModifiers())
+                || exifRead.getReturnType() != String.class
+                || java.lang.reflect.Modifier.isStatic(exifRead.getModifiers())) {
+            throw new NoSuchFieldException("Unexpected template/EXIF members: " + check);
+        }
+
+        // Identify the two verdict subclasses by their verified structure, not their names.
+        Class<?> rejected = null;
+        Field acceptedField = null;
+        for (Class<?> nested : verdict.getDeclaredClasses()) {
+            if (nested.getSuperclass() != verdict) continue;
+            try {
+                nested.getDeclaredConstructor(int.class);
+                Field reason = nested.getDeclaredField("a");
+                if (reason.getType() == int.class
+                        && !java.lang.reflect.Modifier.isStatic(reason.getModifiers())) {
+                    if (rejected != null) throw new IllegalStateException("Ambiguous rejection verdict");
+                    rejected = nested;
+                }
+            } catch (NoSuchMethodException | NoSuchFieldException ignored) {
+                // Not the rejection class.
+            }
+            for (Field field : nested.getDeclaredFields()) {
+                if (field.getType() == nested
+                        && java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                        && java.lang.reflect.Modifier.isFinal(field.getModifiers())) {
+                    if (acceptedField != null) throw new IllegalStateException("Ambiguous acceptance verdict");
+                    acceptedField = field;
+                }
+            }
+        }
+        if (rejected == null || acceptedField == null
+                || rejected == acceptedField.getDeclaringClass()) {
+            throw new NoSuchFieldException("Missing acceptance/rejection verdicts: " + check);
+        }
         check.setAccessible(true);
+        templateName.setAccessible(true);
+        exifRead.setAccessible(true);
+        acceptedField.setAccessible(true);
+        Object accepted = acceptedField.get(null);
+        if (accepted == null || !verdict.isInstance(accepted)) {
+            throw new NoSuchFieldException("Invalid acceptance singleton: " + check);
+        }
+        return new LeicaGate(check, templateName, exifRead, rejected, accepted);
+    }
 
+    private LeicaGate resolveLeicaGate(ClassLoader cl, String apkPath) throws Throwable {
+        java.util.LinkedHashSet<Method> known = new java.util.LinkedHashSet<>();
+        for (String[] sig : LEICA_GATE_SIGNATURES) {
+            try {
+                Class<?> checker = Class.forName(sig[0], false, cl);
+                Method method = checker.getDeclaredMethod("a",
+                        Class.forName(sig[1], false, cl), String.class,
+                        Class.forName(sig[2], false, cl), Class.forName(sig[3], false, cl));
+                if (method.getReturnType() == Class.forName(sig[4], false, cl)) known.add(method);
+            } catch (ReflectiveOperationException | LinkageError ignored) {
+                // This signature belongs to a different editor version.
+            }
+        }
+        if (known.size() == 1) {
+            try {
+                return describeLeicaGate(known.iterator().next());
+            } catch (ReflectiveOperationException | LinkageError ignored) {
+                // A familiar name with changed members is not sufficient.
+            }
+        }
+
+        // Unknown build: locate the verdict type by its stable toString() literal.
+        // The two inspected APKs use different XOR keys for gate strings, so do NOT
+        // search encoded log messages. Require a unique static four-argument method
+        // returning the verdict, with a template type referenced by WatermarkItem.
+        if (apkPath == null || apkPath.isEmpty()) {
+            throw new NoSuchMethodException("Unknown Leica gate and no editor APK path");
+        }
+        Class<?> watermarkItem = Class.forName(LEICA_WATERMARK_ITEM, false, cl);
+        System.loadLibrary("dexkit");
+        java.util.LinkedHashSet<Method> matches = new java.util.LinkedHashSet<>();
+        try (DexKitBridge bridge = DexKitBridge.create(apkPath)) {
+            MethodDataList markers = bridge.findMethod(FindMethod.create()
+                    .matcher(MethodMatcher.create().paramCount(0).returnType(String.class)
+                            .usingStrings(LEICA_REJECTION_MARKER)));
+            for (MethodData marker : markers) {
+                Method toString;
+                try {
+                    toString = marker.getMethodInstance(cl);
+                } catch (Exception | LinkageError ignored) {
+                    continue;
+                }
+                if (!"toString".equals(toString.getName())) continue;
+                Class<?> rejected = toString.getDeclaringClass();
+                Class<?> verdict = rejected.getSuperclass();
+                if (verdict == null || verdict == Object.class) continue;
+                MethodDataList gates = bridge.findMethod(FindMethod.create()
+                        .matcher(MethodMatcher.create().paramCount(4).returnType(verdict)));
+                for (MethodData data : gates) {
+                    try {
+                        Method method = data.getMethodInstance(cl);
+                        Class<?>[] args = method.getParameterTypes();
+                        if (!java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                                || args.length != 4 || args[1] != String.class) continue;
+                        boolean itemReferencesTemplate = false;
+                        for (Field field : watermarkItem.getDeclaredFields()) {
+                            if (field.getType() == args[0]
+                                    && !java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                                itemReferencesTemplate = true;
+                                break;
+                            }
+                        }
+                        if (!itemReferencesTemplate) continue;
+                        LeicaGate candidate = describeLeicaGate(method);
+                        if (candidate.rejected == rejected) matches.add(method);
+                    } catch (Exception | LinkageError ignored) {
+                        // Fail closed on a changed or incomplete signature.
+                    }
+                }
+            }
+        }
+        if (matches.size() != 1) {
+            throw new NoSuchMethodException("Leica gate discovery found " + matches.size()
+                    + " candidates; no hook installed");
+        }
+        return describeLeicaGate(matches.iterator().next());
+    }
+
+    private void hookAllowLegacyLeicaWatermarks(ClassLoader cl, String apkPath) throws Throwable {
+        LeicaGate gate = resolveLeicaGate(cl, apkPath);
+        final Method check = gate.check;
+        final Field templateNameField = gate.templateName;
+        final Method exifRead = gate.exifRead;
+        final Class<?> rejectedCls = gate.rejected;
+        final Object accepted = gate.accepted;
         hook(check).intercept(chain -> {
             Object result = chain.proceed(); // other templates use the original rules
             if (!rejectedCls.isInstance(result)) return result;
